@@ -30,10 +30,10 @@
       "package": "com.anonymous.zezoaudio"
     },
     "web": {
-        "output": "static",
-        "favicon": "./assets/images/favicon.png",
-        "publicPath": "/zezo-audio/"
-      },
+      "output": "static",
+      "favicon": "./assets/images/favicon.png",
+      "baseUrl": "/zezo-audio/"
+    },
     "plugins": [
       "expo-router",
       [
