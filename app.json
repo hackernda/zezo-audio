@@ -35,7 +35,12 @@
       "baseUrl": "/zezo-audio/"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "origin": "https://hackernda.github.io/zezo-audio/"
+        }
+      ],
       [
         "expo-splash-screen",
         {
