@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  SafeAreaView, TextInput, Animated, Modal, StatusBar, Image
+  SafeAreaView, TextInput, Animated, Modal, StatusBar, Image, Platform
 } from 'react-native';
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import Slider from '@react-native-community/slider';
@@ -43,7 +43,7 @@ export default function App() {
       playsInSilentModeIOS: true,
       staysActiveInBackground: true,
       shouldDuckAndroid: false,
-});
+    });
     fetchSongs();
   }, []);
 
@@ -97,7 +97,6 @@ export default function App() {
     const key = songsRef.current[nextIdx];
     if (!key) return;
     try {
-      // Unload old preload if different
       if (preloadedRef.current && preloadedRef.current.index !== nextIdx) {
         await preloadedRef.current.sound.unloadAsync();
         preloadedRef.current = null;
@@ -122,7 +121,6 @@ export default function App() {
   }, []);
 
   const playSong = async (index: number) => {
-    // Stop and unload current
     if (soundRef.current) {
       await soundRef.current.stopAsync();
       await soundRef.current.unloadAsync();
@@ -135,13 +133,11 @@ export default function App() {
 
     let newSound: Audio.Sound;
 
-    // Use preloaded if available
     if (preloadedRef.current?.index === index) {
       newSound = preloadedRef.current.sound;
       preloadedRef.current = null;
       await newSound.playAsync();
     } else {
-      // Unload stale preload
       if (preloadedRef.current) {
         await preloadedRef.current.sound.unloadAsync();
         preloadedRef.current = null;
@@ -157,8 +153,6 @@ export default function App() {
     newSound.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
     soundRef.current = newSound;
     setIsPlaying(true);
-
-    // Preload next in background
     preloadNext(index);
   };
 

@@ -7,13 +7,10 @@
     "icon": "./assets/images/icon.png",
     "scheme": "zezoaudio",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "infoPlist": {
         "UIBackgroundModes": [
-          "audio",
-          "audio",
-          "audio",
           "audio"
         ],
         "ITSAppUsesNonExemptEncryption": false
