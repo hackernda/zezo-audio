@@ -22,6 +22,8 @@ jobs:
 
       - name: Build web
         run: npx expo export --platform web
+        env:
+          EXPO_PUBLIC_BASE_URL: /zezo-audio/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
