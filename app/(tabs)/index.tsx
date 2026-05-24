@@ -12,7 +12,7 @@ const SHADOW_DARK = '#a3b1c6';
 const ACCENT = '#6c8ebf';
 const TEXT = '#2d3748';
 const TEXT_DIM = '#7a8ba0';
-
+const FALLBACK_ART = 'https://via.placeholder.com/300x300?text=Music';
 const decodeHtml = (str: string) =>
   str.replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 
@@ -65,25 +65,24 @@ export default function App() {
     }
   }, [isPlaying]);
 
-  const fetchAlbumArt = async (songName: string, retry = 2) => {
+  const fetchAlbumArt = async (songName: string) => {
     try {
       const res = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(songName)}&entity=song&limit=1`
+        `https://itunes.apple.com/search?term=${encodeURIComponent(songName + ' audio')}&entity=song&limit=1`
       );
+
       const data = await res.json();
 
-      if (data.results?.length > 0) {
+      if (data.results?.length > 0 && data.results[0].artworkUrl100) {
         const art = data.results[0].artworkUrl100.replace('100x100', '300x300');
-        setArtCache(prev => ({ ...prev, [songName]: art }));
-        return;
-      }
 
-      throw new Error('No results');
-    } catch (e) {
-      if (retry > 0) {
-        await new Promise(r => setTimeout(r, 400));
-        return fetchAlbumArt(songName, retry - 1);
+        setArtCache(prev => ({
+          ...prev,
+          [songName]: art,
+        }));
       }
+    } catch {
+      // ignore
     }
   };
 
@@ -159,6 +158,24 @@ export default function App() {
       title,
     });
   };
+
+  const registerMediaSession = () => {
+    if (!('mediaSession' in navigator)) return;
+
+    navigator.mediaSession.setActionHandler('nexttrack', handleNext);
+    navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
+
+    navigator.mediaSession.setActionHandler('play', async () => {
+      await soundRef.current?.playAsync();
+      setIsPlaying(true);
+    });
+
+    navigator.mediaSession.setActionHandler('pause', async () => {
+      await soundRef.current?.pauseAsync();
+      setIsPlaying(false);
+    });
+  };
+  
   const playSong = async (index: number) => {
     // 🟡 prevent reloading same song unnecessarily
     if (currentIndexRef.current === index && soundRef.current) {
@@ -210,6 +227,7 @@ export default function App() {
     soundRef.current = newSound;
 
     setIsPlaying(true);
+    registerMediaSession();
     updateMediaSession(index);
 
     // safer preload timing for iOS
@@ -254,22 +272,7 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
 
-    navigator.mediaSession.setActionHandler('nexttrack', handleNext);
-    navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
-
-    navigator.mediaSession.setActionHandler('play', async () => {
-      await soundRef.current?.playAsync();
-      setIsPlaying(true);
-    });
-
-    navigator.mediaSession.setActionHandler('pause', async () => {
-      await soundRef.current?.pauseAsync();
-      setIsPlaying(false);
-    });
-  }, []);
 
   const formatTime = (ms: number) => {
     const s = Math.floor(ms / 1000);
@@ -301,7 +304,7 @@ export default function App() {
         renderItem={({ item }) => {
           const isActive = songs[currentIndex] === item;
           const songName = item.replace('.mp3', '');
-          const art = artCache[songName];
+          const art = artCache[songName] || FALLBACK_ART;
           return (
             <TouchableOpacity
               style={[styles.song, isActive && styles.songActive]}
