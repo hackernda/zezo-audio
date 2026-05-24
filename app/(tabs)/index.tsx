@@ -416,6 +416,15 @@ export default function App() {
     setTimeout(() => preloadNext(index), 200);
   };
 
+  const startPlaying = () => {
+    const library = songsRef.current;
+    if (!library.length) return;
+
+    setIsShuffled(true);
+    isShuffledRef.current = true;
+    playSong(Math.floor(Math.random() * library.length));
+  };
+
   const handleNext = () => {
     if (!songsRef.current.length) return;
     playSong(getNextIndex(currentIndexRef.current));
@@ -480,6 +489,15 @@ export default function App() {
           onChangeText={setSearch}
         />
       </View>
+
+      <TouchableOpacity
+        style={[styles.startButton, !songs.length && styles.startButtonDisabled]}
+        onPress={startPlaying}
+        disabled={!songs.length}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.startButtonText}>Start Playing</Text>
+      </TouchableOpacity>
 
       <FlatList
         data={filtered}
@@ -613,6 +631,12 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   searchWrapper: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
   search: { backgroundColor: BG, borderRadius: 16, padding: 12, color: TEXT, fontSize: 16, ...neu },
+  startButton: {
+    marginHorizontal: 20, marginTop: 6, marginBottom: 8, paddingVertical: 14,
+    borderRadius: 14, backgroundColor: ACCENT, alignItems: 'center', justifyContent: 'center', ...neu,
+  },
+  startButtonDisabled: { opacity: 0.5 },
+  startButtonText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   song: {
     flexDirection: 'row', alignItems: 'center', padding: 12,
     marginHorizontal: 20, marginVertical: 4, borderRadius: 12,
