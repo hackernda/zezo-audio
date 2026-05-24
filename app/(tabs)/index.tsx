@@ -54,6 +54,15 @@ const updateMediaPlaybackState = (playing: boolean, positionMillis?: number, dur
   }
 };
 
+const setMediaActionHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler) => {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.setActionHandler(action, handler);
+  } catch {
+    // Safari may expose mediaSession but reject individual actions.
+  }
+};
+
 const bytesToString = (bytes: Uint8Array, start: number, end: number) => {
   let value = '';
   for (let i = start; i < end; i++) value += String.fromCharCode(bytes[i]);
@@ -146,6 +155,7 @@ export default function App() {
   const songsRef = useRef<string[]>([]);
   const isShuffledRef = useRef(false);
   const isSeekingRef = useRef(false);
+  const isPlayingRef = useRef(false);
   const positionRef = useRef(0);
   const durationRef = useRef(1);
   const spinAnim = useRef(new Animated.Value(0)).current;
@@ -164,6 +174,7 @@ export default function App() {
   useEffect(() => { songsRef.current = songs; }, [songs]);
   useEffect(() => { isShuffledRef.current = isShuffled; }, [isShuffled]);
   useEffect(() => { isSeekingRef.current = isSeeking; }, [isSeeking]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   useEffect(() => { positionRef.current = position; }, [position]);
   useEffect(() => { durationRef.current = duration; }, [duration]);
 
@@ -285,6 +296,7 @@ export default function App() {
     if (!status.isLoaded) return;
     if (!isSeekingRef.current) setPosition(status.positionMillis);
     setDuration(status.durationMillis || 1);
+    isPlayingRef.current = status.isPlaying;
     setIsPlaying(status.isPlaying);
     updateMediaPlaybackState(status.isPlaying, status.positionMillis, status.durationMillis || 1);
     if (status.didJustFinish) {
@@ -293,7 +305,7 @@ export default function App() {
     }
   }, []);
   const currentSongRef = useRef<string | null>(null);
-  const updateMediaSession = (index: number) => {
+  const updateMediaSession = (index: number, playing = isPlayingRef.current) => {
     if (!('mediaSession' in navigator)) return;
 
     const key = songsRef.current[index];
@@ -301,25 +313,28 @@ export default function App() {
     const art = key ? artCache[songTitle(key)] : undefined;
 
     navigator.mediaSession.metadata = mediaMetadata(title, art);
-    updateMediaPlaybackState(isPlaying, position, duration);
+    registerMediaSession();
+    updateMediaPlaybackState(playing, positionRef.current, durationRef.current);
   };
 
   const registerMediaSession = () => {
     if (!('mediaSession' in navigator)) return;
 
-    navigator.mediaSession.setActionHandler('nexttrack', handleNext);
-    navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
+    setMediaActionHandler('nexttrack', handleNext);
+    setMediaActionHandler('previoustrack', handlePrev);
 
-    navigator.mediaSession.setActionHandler('play', async () => {
+    setMediaActionHandler('play', async () => {
       await soundRef.current?.playAsync();
+      isPlayingRef.current = true;
       setIsPlaying(true);
-      updateMediaPlaybackState(true, position, duration);
+      updateMediaPlaybackState(true, positionRef.current, durationRef.current);
     });
 
-    navigator.mediaSession.setActionHandler('pause', async () => {
+    setMediaActionHandler('pause', async () => {
       await soundRef.current?.pauseAsync();
+      isPlayingRef.current = false;
       setIsPlaying(false);
-      updateMediaPlaybackState(false, position, duration);
+      updateMediaPlaybackState(false, positionRef.current, durationRef.current);
     });
   };
 
@@ -333,8 +348,9 @@ export default function App() {
     const title = key ? songTitle(key) : '';
     const art = key ? artCache[songTitle(key)] : undefined;
     navigator.mediaSession.metadata = mediaMetadata(title, art);
-    updateMediaPlaybackState(isPlaying, position, duration);
-  }, [currentIndex, songs, artCache, isPlaying, position, duration]);
+    registerMediaSession();
+    updateMediaPlaybackState(isPlayingRef.current, positionRef.current, durationRef.current);
+  }, [currentIndex, songs, artCache]);
 
   useEffect(() => {
     if (mediaHeartbeatRef.current) {
@@ -361,8 +377,9 @@ export default function App() {
     if (currentIndexRef.current === index && soundRef.current) {
       try {
         await soundRef.current.playAsync();
+        isPlayingRef.current = true;
         setIsPlaying(true);
-        updateMediaPlaybackState(true, position, duration);
+        updateMediaPlaybackState(true, positionRef.current, durationRef.current);
       } catch { }
       return;
     }
@@ -408,9 +425,10 @@ export default function App() {
     newSound.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
     soundRef.current = newSound;
 
+    isPlayingRef.current = true;
     setIsPlaying(true);
     registerMediaSession();
-    updateMediaSession(index);
+    updateMediaSession(index, true);
 
     // safer preload timing for iOS
     setTimeout(() => preloadNext(index), 200);
@@ -453,14 +471,16 @@ export default function App() {
     if (isPlaying) {
       try {
         await soundRef.current.pauseAsync();
+        isPlayingRef.current = false;
         setIsPlaying(false);
-        updateMediaPlaybackState(false, position, duration);
+        updateMediaPlaybackState(false, positionRef.current, durationRef.current);
       } catch { }
     } else {
       try {
         await soundRef.current.playAsync();
+        isPlayingRef.current = true;
         setIsPlaying(true);
-        updateMediaPlaybackState(true, position, duration);
+        updateMediaPlaybackState(true, positionRef.current, durationRef.current);
       } catch { }
     }
   };
