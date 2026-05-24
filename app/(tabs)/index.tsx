@@ -150,7 +150,15 @@ export default function App() {
     }
   }, []);
   const currentSongRef = useRef<string | null>(null);
+  const updateMediaSession = (index: number) => {
+    if (!('mediaSession' in navigator)) return;
 
+    const title = songsRef.current[index]?.replace('.mp3', '') ?? 'Unknown';
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+    });
+  };
   const playSong = async (index: number) => {
     // 🟡 prevent reloading same song unnecessarily
     if (currentIndexRef.current === index && soundRef.current) {
@@ -202,6 +210,7 @@ export default function App() {
     soundRef.current = newSound;
 
     setIsPlaying(true);
+    updateMediaSession(index);
 
     // safer preload timing for iOS
     setTimeout(() => preloadNext(index), 200);
@@ -246,25 +255,21 @@ export default function App() {
   };
 
   useEffect(() => {
-  if (!('mediaSession' in navigator)) return;
+    if (!('mediaSession' in navigator)) return;
 
-  navigator.mediaSession.setActionHandler('nexttrack', handleNext);
-  navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
+    navigator.mediaSession.setActionHandler('nexttrack', handleNext);
+    navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
 
-  navigator.mediaSession.setActionHandler('play', async () => {
-    await soundRef.current?.playAsync();
-    setIsPlaying(true);
-  });
+    navigator.mediaSession.setActionHandler('play', async () => {
+      await soundRef.current?.playAsync();
+      setIsPlaying(true);
+    });
 
-  navigator.mediaSession.setActionHandler('pause', async () => {
-    await soundRef.current?.pauseAsync();
-    setIsPlaying(false);
-  });
-
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: currentSongRef.current ?? '',
-  });
-}, []);
+    navigator.mediaSession.setActionHandler('pause', async () => {
+      await soundRef.current?.pauseAsync();
+      setIsPlaying(false);
+    });
+  }, []);
 
   const formatTime = (ms: number) => {
     const s = Math.floor(ms / 1000);
