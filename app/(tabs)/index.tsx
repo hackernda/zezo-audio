@@ -18,6 +18,26 @@ const decodeHtml = (str: string) =>
 
 const songTitle = (songName: string) => songName.replace(/\.mp3$/i, '');
 
+const artworkType = (src: string) => {
+  const dataUriType = src.match(/^data:(image\/[^;]+);/)?.[1];
+  if (dataUriType) return dataUriType;
+  if (src.toLowerCase().includes('.png')) return 'image/png';
+  return 'image/jpeg';
+};
+
+const mediaMetadata = (title: string, art?: string) => new MediaMetadata({
+  title,
+  artwork: art
+    ? [
+      { src: art, sizes: '96x96', type: artworkType(art) },
+      { src: art, sizes: '128x128', type: artworkType(art) },
+      { src: art, sizes: '192x192', type: artworkType(art) },
+      { src: art, sizes: '256x256', type: artworkType(art) },
+      { src: art, sizes: '512x512', type: artworkType(art) },
+    ]
+    : undefined,
+});
+
 const bytesToString = (bytes: Uint8Array, start: number, end: number) => {
   let value = '';
   for (let i = start; i < end; i++) value += String.fromCharCode(bytes[i]);
@@ -253,11 +273,11 @@ export default function App() {
   const updateMediaSession = (index: number) => {
     if (!('mediaSession' in navigator)) return;
 
-    const title = songsRef.current[index]?.replace('.mp3', '') ?? 'Unknown';
+    const key = songsRef.current[index];
+    const title = key ? songTitle(key) : 'Unknown';
+    const art = key ? artCache[songTitle(key)] : undefined;
 
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title,
-    });
+    navigator.mediaSession.metadata = mediaMetadata(title, art);
   };
 
   const registerMediaSession = () => {
@@ -279,11 +299,11 @@ export default function App() {
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
-    const title = songs[currentIndex]?.replace('.mp3', '') ?? '';
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title,
-    });
-  }, [currentIndex]);
+    const key = songs[currentIndex];
+    const title = key ? songTitle(key) : '';
+    const art = key ? artCache[songTitle(key)] : undefined;
+    navigator.mediaSession.metadata = mediaMetadata(title, art);
+  }, [currentIndex, songs, artCache]);
   
   const playSong = async (index: number) => {
     // 🟡 prevent reloading same song unnecessarily
