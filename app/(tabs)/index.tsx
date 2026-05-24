@@ -65,17 +65,40 @@ export default function App() {
     }
   }, [isPlaying]);
 
-  const fetchAlbumArt = async (songName: string) => {
+  const fetchAlbumArt = async (songName: string, retry = 2) => {
     try {
-      const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(songName)}&entity=song&limit=1`);
+      const res = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(songName)}&entity=song&limit=1`
+      );
       const data = await res.json();
+
       if (data.results?.length > 0) {
         const art = data.results[0].artworkUrl100.replace('100x100', '300x300');
         setArtCache(prev => ({ ...prev, [songName]: art }));
+        return;
       }
-    } catch { }
+
+      throw new Error('No results');
+    } catch (e) {
+      if (retry > 0) {
+        await new Promise(r => setTimeout(r, 400));
+        return fetchAlbumArt(songName, retry - 1);
+      }
+    }
   };
 
+  const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+  const loadArtsSequentially = async (names: string[]) => {
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i].replace('.mp3', '');
+
+      await fetchAlbumArt(name);
+
+      // small delay prevents iTunes rate limit
+      await sleep(120);
+    }
+  };
   const fetchSongs = async () => {
     const res = await fetch(`${BUCKET_URL}?list-type=2`);
     const text = await res.text();
@@ -83,7 +106,14 @@ export default function App() {
     const names = matches.map(m => decodeHtml(m[1])).filter(k => k.endsWith('.mp3'));
     setSongs(names);
     setFiltered(names);
-    names.forEach(n => fetchAlbumArt(n.replace('.mp3', '')));
+
+    // load only first 15 immediately
+    loadArtsSequentially(names.slice(0, 15));
+
+    // lazy-load the rest in background
+    setTimeout(() => {
+      loadArtsSequentially(names.slice(15));
+    }, 2000);
   };
 
   const getNextIndex = (index: number) => {
