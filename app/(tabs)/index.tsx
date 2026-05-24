@@ -12,8 +12,84 @@ const SHADOW_DARK = '#a3b1c6';
 const ACCENT = '#6c8ebf';
 const TEXT = '#2d3748';
 const TEXT_DIM = '#7a8ba0';
+const ART_SCAN_BYTES = 1024 * 1024;
 const decodeHtml = (str: string) =>
   str.replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+const songTitle = (songName: string) => songName.replace(/\.mp3$/i, '');
+
+const bytesToString = (bytes: Uint8Array, start: number, end: number) => {
+  let value = '';
+  for (let i = start; i < end; i++) value += String.fromCharCode(bytes[i]);
+  return value;
+};
+
+const readSynchsafeInt = (bytes: Uint8Array, start: number) =>
+  ((bytes[start] & 0x7f) << 21)
+  | ((bytes[start + 1] & 0x7f) << 14)
+  | ((bytes[start + 2] & 0x7f) << 7)
+  | (bytes[start + 3] & 0x7f);
+
+const readFrameSize = (bytes: Uint8Array, start: number, version: number) => {
+  if (version === 4) return readSynchsafeInt(bytes, start);
+  return (bytes[start] << 24) | (bytes[start + 1] << 16) | (bytes[start + 2] << 8) | bytes[start + 3];
+};
+
+const findTextEnd = (bytes: Uint8Array, start: number, end: number, encoding: number) => {
+  const step = encoding === 1 || encoding === 2 ? 2 : 1;
+  for (let i = start; i < end - step + 1; i += step) {
+    if (step === 2 && bytes[i] === 0 && bytes[i + 1] === 0) return i + 2;
+    if (step === 1 && bytes[i] === 0) return i + 1;
+  }
+  return -1;
+};
+
+const uint8ArrayToBase64 = (bytes: Uint8Array) => {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+};
+
+const extractEmbeddedAlbumArt = (buffer: ArrayBuffer) => {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length < 10 || bytesToString(bytes, 0, 3) !== 'ID3') return null;
+
+  const version = bytes[3];
+  if (version < 3 || version > 4) return null;
+
+  const tagEnd = Math.min(bytes.length, 10 + readSynchsafeInt(bytes, 6));
+  let offset = 10;
+
+  while (offset + 10 <= tagEnd) {
+    const frameId = bytesToString(bytes, offset, offset + 4);
+    const frameSize = readFrameSize(bytes, offset + 4, version);
+    const frameStart = offset + 10;
+    const frameEnd = frameStart + frameSize;
+
+    if (!frameId.trim() || frameSize <= 0 || frameEnd > tagEnd) break;
+
+    if (frameId === 'APIC') {
+      const encoding = bytes[frameStart];
+      const mimeEnd = bytes.indexOf(0, frameStart + 1);
+      if (mimeEnd === -1 || mimeEnd + 2 >= frameEnd) return null;
+
+      const mime = bytesToString(bytes, frameStart + 1, mimeEnd) || 'image/jpeg';
+      const descriptionStart = mimeEnd + 2;
+      const imageStart = findTextEnd(bytes, descriptionStart, frameEnd, encoding);
+      if (imageStart === -1 || imageStart >= frameEnd) return null;
+
+      const imageBytes = bytes.subarray(imageStart, frameEnd);
+      return `data:${mime};base64,${uint8ArrayToBase64(imageBytes)}`;
+    }
+
+    offset = frameEnd;
+  }
+
+  return null;
+};
 
 export default function App() {
   const [songs, setSongs] = useState<string[]>([]);
@@ -64,21 +140,43 @@ export default function App() {
     }
   }, [isPlaying]);
 
-  const fetchAlbumArt = async (songName: string) => {
+  const fetchEmbeddedAlbumArt = async (songKey: string) => {
+    try {
+      const res = await fetch(`${BUCKET_URL}/${encodeURIComponent(songKey)}`, {
+        headers: { Range: `bytes=0-${ART_SCAN_BYTES - 1}` },
+      });
+      const art = extractEmbeddedAlbumArt(await res.arrayBuffer());
+      if (art) {
+        setArtCache(prev => ({
+          ...prev,
+          [songTitle(songKey)]: art,
+        }));
+        return art;
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  };
+
+  const fetchDeezerAlbumArt = async (songName: string) => {
     try {
       const clean = songName
         .replace(/\.mp3$/i, '')
         .replace(/\(.*?\)/g, '')
         .trim();
       const res = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(clean)}&entity=song&limit=1`
+        `https://api.deezer.com/search?q=${encodeURIComponent(clean)}&limit=1`
       );
       const data = await res.json();
-      const art = data?.results?.[0]?.artworkUrl100;
+      const art = data?.data?.[0]?.album?.cover_xl
+        || data?.data?.[0]?.album?.cover_big
+        || data?.data?.[0]?.album?.cover_medium;
       if (art) {
         setArtCache(prev => ({
           ...prev,
-          [songName]: art.replace('100x100', '300x300'),
+          [songTitle(songName)]: art,
         }));
       }
     } catch {
@@ -86,15 +184,18 @@ export default function App() {
     }
   };
 
+  const fetchAlbumArt = async (songKey: string) => {
+    const embeddedArt = await fetchEmbeddedAlbumArt(songKey);
+    if (!embeddedArt) await fetchDeezerAlbumArt(songKey);
+  };
+
   const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
   const loadArtsSequentially = async (names: string[]) => {
     for (let i = 0; i < names.length; i++) {
-      const name = names[i].replace('.mp3', '');
+      await fetchAlbumArt(names[i]);
 
-      await fetchAlbumArt(name);
-
-      // small delay prevents iTunes rate limit
+      // small delay prevents public art services from throttling fallback requests
       await sleep(120);
     }
   };
@@ -207,6 +308,7 @@ export default function App() {
 
     const key = songsRef.current[index];
     currentSongRef.current = key?.replace('.mp3', '') ?? '';
+    if (key && !artCache[songTitle(key)]) fetchAlbumArt(key);
 
     let newSound: Audio.Sound;
 
