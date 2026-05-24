@@ -146,8 +146,11 @@ export default function App() {
   const songsRef = useRef<string[]>([]);
   const isShuffledRef = useRef(false);
   const isSeekingRef = useRef(false);
+  const positionRef = useRef(0);
+  const durationRef = useRef(1);
   const spinAnim = useRef(new Animated.Value(0)).current;
   const spinLoop = useRef<Animated.CompositeAnimation | null>(null);
+  const mediaHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     Audio.setAudioModeAsync({
@@ -161,6 +164,8 @@ export default function App() {
   useEffect(() => { songsRef.current = songs; }, [songs]);
   useEffect(() => { isShuffledRef.current = isShuffled; }, [isShuffled]);
   useEffect(() => { isSeekingRef.current = isSeeking; }, [isSeeking]);
+  useEffect(() => { positionRef.current = position; }, [position]);
+  useEffect(() => { durationRef.current = duration; }, [duration]);
 
   useEffect(() => {
     if (search.trim() === '') setFiltered(songs);
@@ -296,6 +301,7 @@ export default function App() {
     const art = key ? artCache[songTitle(key)] : undefined;
 
     navigator.mediaSession.metadata = mediaMetadata(title, art);
+    updateMediaPlaybackState(isPlaying, position, duration);
   };
 
   const registerMediaSession = () => {
@@ -327,7 +333,28 @@ export default function App() {
     const title = key ? songTitle(key) : '';
     const art = key ? artCache[songTitle(key)] : undefined;
     navigator.mediaSession.metadata = mediaMetadata(title, art);
-  }, [currentIndex, songs, artCache]);
+    updateMediaPlaybackState(isPlaying, position, duration);
+  }, [currentIndex, songs, artCache, isPlaying, position, duration]);
+
+  useEffect(() => {
+    if (mediaHeartbeatRef.current) {
+      clearInterval(mediaHeartbeatRef.current);
+      mediaHeartbeatRef.current = null;
+    }
+
+    if (isPlaying) {
+      mediaHeartbeatRef.current = setInterval(() => {
+        updateMediaPlaybackState(true, positionRef.current, durationRef.current);
+      }, 1000);
+    }
+
+    return () => {
+      if (mediaHeartbeatRef.current) {
+        clearInterval(mediaHeartbeatRef.current);
+        mediaHeartbeatRef.current = null;
+      }
+    };
+  }, [isPlaying]);
   
   const playSong = async (index: number) => {
     // 🟡 prevent reloading same song unnecessarily
@@ -382,7 +409,6 @@ export default function App() {
     soundRef.current = newSound;
 
     setIsPlaying(true);
-    updateMediaPlaybackState(true, 0, duration);
     registerMediaSession();
     updateMediaSession(index);
 
