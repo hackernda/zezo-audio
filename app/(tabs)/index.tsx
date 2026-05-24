@@ -149,41 +149,62 @@ export default function App() {
       playSong(nextIdx);
     }
   }, []);
+  const currentSongRef = useRef<string | null>(null);
 
   const playSong = async (index: number) => {
+    // 🟡 prevent reloading same song unnecessarily
+    if (currentIndexRef.current === index && soundRef.current) {
+      try {
+        await soundRef.current.playAsync();
+        setIsPlaying(true);
+      } catch { }
+      return;
+    }
+
+    // ❌ IMPORTANT FIX: do NOT unload on iOS (breaks lock/background audio)
     if (soundRef.current) {
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
-      soundRef.current = null;
+      try {
+        await soundRef.current.pauseAsync();
+      } catch { }
     }
 
     setPosition(0);
     currentIndexRef.current = index;
     setCurrentIndex(index);
 
+    const key = songsRef.current[index];
+    currentSongRef.current = key?.replace('.mp3', '') ?? '';
+
     let newSound: Audio.Sound;
 
+    // reuse preload if available
     if (preloadedRef.current?.index === index) {
       newSound = preloadedRef.current.sound;
       preloadedRef.current = null;
       await newSound.playAsync();
     } else {
       if (preloadedRef.current) {
-        await preloadedRef.current.sound.unloadAsync();
+        try {
+          await preloadedRef.current.sound.unloadAsync();
+        } catch { }
         preloadedRef.current = null;
       }
-      const key = songsRef.current[index];
+
       const { sound } = await Audio.Sound.createAsync(
         { uri: `${BUCKET_URL}/${encodeURIComponent(key)}` },
         { shouldPlay: true }
       );
+
       newSound = sound;
     }
 
     newSound.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
     soundRef.current = newSound;
+
     setIsPlaying(true);
-    preloadNext(index);
+
+    // safer preload timing for iOS
+    setTimeout(() => preloadNext(index), 200);
   };
 
   const handleNext = () => {
@@ -193,25 +214,57 @@ export default function App() {
 
   const handlePrev = () => {
     if (!songsRef.current.length) return;
+
     if (position > 3000) {
       soundRef.current?.setPositionAsync(0);
       setPosition(0);
       return;
     }
-    const prev = currentIndexRef.current <= 0 ? songsRef.current.length - 1 : currentIndexRef.current - 1;
+
+    const prev =
+      currentIndexRef.current <= 0
+        ? songsRef.current.length - 1
+        : currentIndexRef.current - 1;
+
     playSong(prev);
   };
 
   const togglePause = async () => {
     if (!soundRef.current) return;
+
     if (isPlaying) {
-      await soundRef.current.pauseAsync();
-      setIsPlaying(false);
+      try {
+        await soundRef.current.pauseAsync();
+        setIsPlaying(false);
+      } catch { }
     } else {
-      await soundRef.current.playAsync();
-      setIsPlaying(true);
+      try {
+        await soundRef.current.playAsync();
+        setIsPlaying(true);
+      } catch { }
     }
   };
+
+  useEffect(() => {
+  if (!('mediaSession' in navigator)) return;
+
+  navigator.mediaSession.setActionHandler('nexttrack', handleNext);
+  navigator.mediaSession.setActionHandler('previoustrack', handlePrev);
+
+  navigator.mediaSession.setActionHandler('play', async () => {
+    await soundRef.current?.playAsync();
+    setIsPlaying(true);
+  });
+
+  navigator.mediaSession.setActionHandler('pause', async () => {
+    await soundRef.current?.pauseAsync();
+    setIsPlaying(false);
+  });
+
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: currentSongRef.current ?? '',
+  });
+}, []);
 
   const formatTime = (ms: number) => {
     const s = Math.floor(ms / 1000);
