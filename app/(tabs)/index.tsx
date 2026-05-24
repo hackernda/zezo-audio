@@ -12,7 +12,6 @@ const SHADOW_DARK = '#a3b1c6';
 const ACCENT = '#6c8ebf';
 const TEXT = '#2d3748';
 const TEXT_DIM = '#7a8ba0';
-const FALLBACK_ART = 'https://via.placeholder.com/300x300?text=Music';
 const decodeHtml = (str: string) =>
   str.replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 
@@ -67,18 +66,19 @@ export default function App() {
 
   const fetchAlbumArt = async (songName: string) => {
     try {
+      const clean = songName
+        .replace(/\.mp3$/i, '')
+        .replace(/\(.*?\)/g, '')
+        .trim();
       const res = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(songName + ' audio')}&entity=song&limit=1`
+        `https://itunes.apple.com/search?term=${encodeURIComponent(clean)}&entity=song&limit=1`
       );
-
       const data = await res.json();
-
-      if (data.results?.length > 0 && data.results[0].artworkUrl100) {
-        const art = data.results[0].artworkUrl100.replace('100x100', '300x300');
-
+      const art = data?.results?.[0]?.artworkUrl100;
+      if (art) {
         setArtCache(prev => ({
           ...prev,
-          [songName]: art,
+          [songName]: art.replace('100x100', '300x300'),
         }));
       }
     } catch {
@@ -175,6 +175,14 @@ export default function App() {
       setIsPlaying(false);
     });
   };
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const title = songs[currentIndex]?.replace('.mp3', '') ?? '';
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+    });
+  }, [currentIndex]);
   
   const playSong = async (index: number) => {
     // 🟡 prevent reloading same song unnecessarily
@@ -304,16 +312,17 @@ export default function App() {
         renderItem={({ item }) => {
           const isActive = songs[currentIndex] === item;
           const songName = item.replace('.mp3', '');
-          const art = artCache[songName] || FALLBACK_ART;
+          const art = artCache[songName];
           return (
             <TouchableOpacity
               style={[styles.song, isActive && styles.songActive]}
               onPress={() => playSong(songs.indexOf(item))}
             >
-              {art
-                ? <Image source={{ uri: art }} style={styles.songArt} />
-                : <View style={[styles.songArt, styles.songArtPlaceholder]} />
-              }
+              {art ? (
+                <Image source={{ uri: art }} style={styles.songArt} />
+              ) : (
+                <View style={[styles.songArt, styles.songArtPlaceholder]} />
+              )}
               <Text style={[styles.songText, isActive && styles.songTextActive]} numberOfLines={1}>
                 {songName}
               </Text>
