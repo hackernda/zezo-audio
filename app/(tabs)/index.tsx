@@ -38,6 +38,22 @@ const mediaMetadata = (title: string, art?: string) => new MediaMetadata({
     : undefined,
 });
 
+const updateMediaPlaybackState = (playing: boolean, positionMillis?: number, durationMillis?: number) => {
+  if (!('mediaSession' in navigator)) return;
+
+  navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+
+  try {
+    navigator.mediaSession.setPositionState?.({
+      duration: Math.max((durationMillis ?? 1) / 1000, 1),
+      playbackRate: 1,
+      position: Math.max((positionMillis ?? 0) / 1000, 0),
+    });
+  } catch {
+    // Some iOS versions expose mediaSession but reject position updates.
+  }
+};
+
 const bytesToString = (bytes: Uint8Array, start: number, end: number) => {
   let value = '';
   for (let i = start; i < end; i++) value += String.fromCharCode(bytes[i]);
@@ -264,6 +280,8 @@ export default function App() {
     if (!status.isLoaded) return;
     if (!isSeekingRef.current) setPosition(status.positionMillis);
     setDuration(status.durationMillis || 1);
+    setIsPlaying(status.isPlaying);
+    updateMediaPlaybackState(status.isPlaying, status.positionMillis, status.durationMillis || 1);
     if (status.didJustFinish) {
       const nextIdx = getNextIndex(currentIndexRef.current);
       playSong(nextIdx);
@@ -289,13 +307,19 @@ export default function App() {
     navigator.mediaSession.setActionHandler('play', async () => {
       await soundRef.current?.playAsync();
       setIsPlaying(true);
+      updateMediaPlaybackState(true, position, duration);
     });
 
     navigator.mediaSession.setActionHandler('pause', async () => {
       await soundRef.current?.pauseAsync();
       setIsPlaying(false);
+      updateMediaPlaybackState(false, position, duration);
     });
   };
+
+  useEffect(() => {
+    updateMediaPlaybackState(isPlaying, position, duration);
+  }, [isPlaying, position, duration]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
@@ -311,6 +335,7 @@ export default function App() {
       try {
         await soundRef.current.playAsync();
         setIsPlaying(true);
+        updateMediaPlaybackState(true, position, duration);
       } catch { }
       return;
     }
@@ -357,6 +382,7 @@ export default function App() {
     soundRef.current = newSound;
 
     setIsPlaying(true);
+    updateMediaPlaybackState(true, 0, duration);
     registerMediaSession();
     updateMediaSession(index);
 
@@ -393,11 +419,13 @@ export default function App() {
       try {
         await soundRef.current.pauseAsync();
         setIsPlaying(false);
+        updateMediaPlaybackState(false, position, duration);
       } catch { }
     } else {
       try {
         await soundRef.current.playAsync();
         setIsPlaying(true);
+        updateMediaPlaybackState(true, position, duration);
       } catch { }
     }
   };
